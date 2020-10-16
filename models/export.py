@@ -18,6 +18,8 @@ from models.experimental import attempt_load
 from utils.activations import Hardswish, SiLU
 from utils.general import set_logging, check_img_size
 
+BOX_SCORE = False
+
 if __name__ == '__main__':
     parser = argparse.ArgumentParser()
     parser.add_argument('--weights', type=str, default='./yolov5s.pt', help='weights path')  # from yolov5/models/
@@ -50,7 +52,7 @@ if __name__ == '__main__':
                 m.act = SiLU()
         # elif isinstance(m, models.yolo.Detect):
         #     m.forward = m.forward_export  # assign forward (optional)
-    model.model[-1].export = True  # set Detect() layer export=True
+    model.model[-1].export = False  # set Detect() layer export=True
     y = model(img)  # dry run
 
     # TorchScript export
@@ -69,8 +71,18 @@ if __name__ == '__main__':
 
         print('\nStarting ONNX export with onnx %s...' % onnx.__version__)
         f = opt.weights.replace('.pt', '.onnx')  # filename
-        torch.onnx.export(model, img, f, verbose=False, opset_version=12, input_names=['images'],
-                          output_names=['classes', 'boxes'] if y is None else ['output'])
+        if BOX_SCORE:
+            torch.onnx.export(model, img, f, verbose=False, opset_version=11, input_names=['images'],
+                      output_names=['boxes', 'scores'],
+                      dynamic_axes={'images': {0: 'batch_size'},
+                            'boxes': {0: 'batch_size'},
+                            'scores': {0: 'batch_size'}})
+        else:
+            torch.onnx.export(model, img, f, verbose=False, opset_version=11, input_names=['images'],
+                      output_names=['output'],
+                      dynamic_axes={'images': {0: 'batch_size'},
+                            'output': {0: 'batch_size'}})
+
 
         # Checks
         onnx_model = onnx.load(f)  # load onnx model

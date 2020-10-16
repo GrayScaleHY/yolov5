@@ -6,6 +6,7 @@ import cv2
 import torch
 import torch.backends.cudnn as cudnn
 from numpy import random
+import numpy as np
 
 from models.experimental import attempt_load
 from utils.datasets import LoadStreams, LoadImages
@@ -13,6 +14,54 @@ from utils.general import check_img_size, non_max_suppression, apply_classifier,
     strip_optimizer, set_logging, increment_path
 from utils.plots import plot_one_box
 from utils.torch_utils import select_device, load_classifier, time_synchronized
+
+import tensorrt as trt
+import pycuda.driver as cuda
+import pycuda.autoinit  # To automatically manage CUDA context creation and cleanup
+
+
+class HostDeviceMem(object):
+    r""" Simple helper data class that's a little nicer to use than a 2-tuple.
+    """
+    def __init__(self, host_mem, device_mem):
+        self.host = host_mem
+        self.device = device_mem
+
+    def __str__(self):
+        return "Host:\n" + str(self.host) + "\nDevice:\n" + str(self.device)
+
+    def __repr__(self):
+        return self.__str__()
+
+
+def allocate_buffers(engine: trt.ICudaEngine, batch_size: int):
+    print('Allocating buffers ...')
+
+    inputs = []
+    outputs = []
+    dbindings = []
+
+    stream = cuda.Stream()
+
+    for binding in engine:
+        # size = batch_size * trt.volume(-1 * engine.get_binding_shape(binding))
+        size = batch_size * trt.volume(engine.get_binding_shape(binding)[1:])
+        print('size', size)
+        dtype = trt.nptype(engine.get_binding_dtype(binding))
+        # Allocate host and device buffers
+        print(size)
+        host_mem = cuda.pagelocked_empty(size, dtype)
+        device_mem = cuda.mem_alloc(host_mem.nbytes)
+        # Append the device buffer to device bindings.
+        dbindings.append(int(device_mem))
+
+        # Append to the appropriate list.
+        if engine.binding_is_input(binding):
+            inputs.append(HostDeviceMem(host_mem, device_mem))
+        else:
+            outputs.append(HostDeviceMem(host_mem, device_mem))
+
+    return inputs, outputs, dbindings, stream
 
 
 def detect(save_img=False):
@@ -30,10 +79,17 @@ def detect(save_img=False):
     half = device.type != 'cpu'  # half precision only supported on CUDA
 
     # Load model
-    model = attempt_load(weights, map_location=device)  # load FP32 model
-    imgsz = check_img_size(imgsz, s=model.stride.max())  # check img_size
-    if half:
-        model.half()  # to FP16
+    # model = attempt_load(weights, map_location=device)  # load FP32 model
+    batch_size = 1
+    with open(weights[0], 'rb') as f, trt.Runtime(trt.Logger(trt.Logger.WARNING)) as runtime:
+        engine = runtime.deserialize_cuda_engine(f.read())
+
+        # Allocate buffers and create a CUDA stream.
+        inputs, outputs, dbindings, stream = allocate_buffers(engine, batch_size)
+
+    # imgsz = check_img_size(imgsz, s=model.stride.max())  # check img_size
+    # if half:
+    #     model.half()  # to FP16
 
     # Second-stage classifier
     classify = False
@@ -46,33 +102,61 @@ def detect(save_img=False):
     if webcam:
         view_img = True
         cudnn.benchmark = True  # set True to speed up constant image size inference
-        dataset = LoadStreams(source, img_size=imgsz)
+        dataset = LoadStreams(source, img_size=imgsz, auto=False)
     else:
         save_img = True
-        dataset = LoadImages(source, img_size=imgsz)
+        dataset = LoadImages(source, img_size=imgsz, auto=False)
 
     # Get names and colors
-    names = model.module.names if hasattr(model, 'module') else model.names
+    names = ['person', 'bicycle', 'car', 'motorcycle', 'airplane', 'bus', 'train', 'truck', 'boat', 'traffic light', 'fire hydrant', 'stop sign', 'parking meter', 'bench', 'bird', 'cat', 'dog', 'horse', 'sheep', 'cow', 'elephant', 'bear', 'zebra', 'giraffe', 'backpack', 'umbrella', 'handbag', 'tie', 'suitcase', 'frisbee', 'skis', 'snowboard', 'sports ball', 'kite', 'baseball bat', 'baseball glove', 'skateboard', 'surfboard', 'tennis racket', 'bottle', 'wine glass', 'cup', 'fork', 'knife', 'spoon', 'bowl', 'banana', 'apple', 'sandwich', 'orange', 'broccoli', 'carrot', 'hot dog', 'pizza', 'donut', 'cake', 'chair', 'couch', 'potted plant', 'bed', 'dining table', 'toilet', 'tv', 'laptop', 'mouse', 'remote', 'keyboard', 'cell phone', 'microwave', 'oven', 'toaster', 'sink', 'refrigerator', 'book', 'clock', 'vase', 'scissors', 'teddy bear', 'hair drier', 'toothbrush']
     colors = [[random.randint(0, 255) for _ in range(3)] for _ in names]
+
 
     # Run inference
     t0 = time.time()
     img = torch.zeros((1, 3, imgsz, imgsz), device=device)  # init img
-    _ = model(img.half() if half else img) if device.type != 'cpu' else None  # run once
+    # _ = model(img.half() if half else img) if device.type != 'cpu' else None  # run once
     for path, img, im0s, vid_cap in dataset:
         img = torch.from_numpy(img).to(device)
-        img = img.half() if half else img.float()  # uint8 to fp16/32
+        # img = img.half() if half else img.float()  # uint8 to fp16/32
+        img = img.float()
         img /= 255.0  # 0 - 255 to 0.0 - 1.0
         if img.ndimension() == 3:
             img = img.unsqueeze(0)
+        img = img.cpu()
 
-        # Inference
-        t1 = time_synchronized()
-        pred = model(img, augment=opt.augment)[0]
+        with engine.create_execution_context() as context:
+            # Inference
+            t1 = time_synchronized()
+            # pred = model(img, augment=opt.augment)[0]
+            np.copyto(inputs[0].host, np.reshape(img, [-1]))
 
-        # Apply NMS
-        pred = non_max_suppression(pred, opt.conf_thres, opt.iou_thres, classes=opt.classes, agnostic=opt.agnostic_nms)
-        t2 = time_synchronized()
+            inp = inputs[0]
+
+            # Transfer input data to the GPU.
+            cuda.memcpy_htod(inp.device, inp.host)
+
+            # import pdb
+            # pdb.set_trace()
+
+            # Set dynamic batch size.
+            # context.setBindingDimensions([batch_size] + inp.shape[1:])
+            context.set_binding_shape(0, [batch_size, 3, imgsz, imgsz])
+
+            # Run inference.
+            context.execute(batch_size, dbindings)
+
+            out_ = outputs[-1]
+            # Transfer predictions back to host from GPU
+            cuda.memcpy_dtoh(out_.host, out_.device)
+            out_np = np.reshape(np.array(out_.host), [-1, 25200, 85])
+
+            print('out_np.shape', out_np.shape)
+            pred = torch.Tensor(out_np)
+
+            # Apply NMS
+            pred = non_max_suppression(pred, opt.conf_thres, opt.iou_thres, classes=opt.classes, agnostic=opt.agnostic_nms)
+            t2 = time_synchronized()
 
         # Apply Classifier
         if classify:

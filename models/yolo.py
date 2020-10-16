@@ -19,6 +19,8 @@ try:
 except ImportError:
     thop = None
 
+BOX_SCORE = False
+
 
 class Detect(nn.Module):
     stride = None  # strides computed during build
@@ -46,15 +48,32 @@ class Detect(nn.Module):
             x[i] = x[i].view(bs, self.na, self.no, ny, nx).permute(0, 1, 3, 4, 2).contiguous()
 
             if not self.training:  # inference
-                if self.grid[i].shape[2:4] != x[i].shape[2:4]:
-                    self.grid[i] = self._make_grid(nx, ny).to(x[i].device)
+                # if self.grid[i].shape[2:4] != x[i].shape[2:4]:
+                self.grid[i] = self._make_grid(nx, ny).to(x[i].device)
 
                 y = x[i].sigmoid()
-                y[..., 0:2] = (y[..., 0:2] * 2. - 0.5 + self.grid[i].to(x[i].device)) * self.stride[i]  # xy
-                y[..., 2:4] = (y[..., 2:4] * 2) ** 2 * self.anchor_grid[i]  # wh
-                z.append(y.view(bs, -1, self.no))
+                xy = (y[..., 0:2] * 2. - 0.5 + self.grid[i].to(x[i].device)) * self.stride[i]  # xy
+                wh = (y[..., 2:4] * 2) ** 2 * self.anchor_grid[i].view(1, -1, 1, 1, 2)  # wh
+                # print('xy.shape', xy.shape)
+                # print('wh.shape', wh.shape)
+                pr_cls = y[..., 4:]
+                y_ = torch.cat((xy, wh, pr_cls), -1)
+                z.append(y_.view(bs, -1, self.no))
 
-        return x if self.training else (torch.cat(z, 1), x)
+        if BOX_SCORE:
+            z_cat = torch.cat(z, 1)
+            xmin = z_cat[:, :, 0:1] - z_cat[:, :, 2:3] / 2
+            ymin = z_cat[:, :, 1:2] - z_cat[:, :, 3:4] / 2
+            xmax = z_cat[:, :, 0:1] + z_cat[:, :, 2:3] / 2
+            ymax = z_cat[:, :, 1:2] + z_cat[:, :, 3:4] / 2
+
+            boxes = torch.cat((xmin, ymin, xmax, ymax), -1)
+            p = z_cat[..., 4:5]
+            scores = p * z_cat[..., 5:]
+
+            return boxes, scores
+        else:
+            return x if self.training else (torch.cat(z, 1), x)
 
     @staticmethod
     def _make_grid(nx=20, ny=20):
