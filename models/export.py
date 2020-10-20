@@ -7,6 +7,7 @@ Usage:
 import argparse
 import sys
 import time
+import os
 
 sys.path.append('./')  # to run '$ python *.py' files in subdirectories
 
@@ -17,8 +18,6 @@ import models
 from models.experimental import attempt_load
 from utils.activations import Hardswish, SiLU
 from utils.general import set_logging, check_img_size
-
-BOX_SCORE = False
 
 if __name__ == '__main__':
     parser = argparse.ArgumentParser()
@@ -71,7 +70,7 @@ if __name__ == '__main__':
 
         print('\nStarting ONNX export with onnx %s...' % onnx.__version__)
         f = opt.weights.replace('.pt', '.onnx')  # filename
-        if BOX_SCORE:
+        if os.environ['BOX_SCORE'].lower() == 'true':
             torch.onnx.export(model, img, f, verbose=False, opset_version=11, input_names=['images'],
                       output_names=['boxes', 'scores'],
                       dynamic_axes={'images': {0: 'batch_size'},

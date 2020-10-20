@@ -1,6 +1,7 @@
 import argparse
 import logging
 import sys
+import os
 from copy import deepcopy
 from pathlib import Path
 
@@ -18,8 +19,6 @@ try:
     import thop  # for FLOPS computation
 except ImportError:
     thop = None
-
-BOX_SCORE = False
 
 
 class Detect(nn.Module):
@@ -60,7 +59,7 @@ class Detect(nn.Module):
                 y_ = torch.cat((xy, wh, pr_cls), -1)
                 z.append(y_.view(bs, -1, self.no))
 
-        if BOX_SCORE:
+        if os.environ['BOX_SCORE'].lower() == 'true':
             z_cat = torch.cat(z, 1)
             xmin = z_cat[:, :, 0:1] - z_cat[:, :, 2:3] / 2
             ymin = z_cat[:, :, 1:2] - z_cat[:, :, 3:4] / 2
