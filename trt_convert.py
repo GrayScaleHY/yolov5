@@ -261,7 +261,7 @@ def main():
 
             nms = network.add_plugin_v2(
                     inputs=[boxes_reshape, scores_reshape], 
-                    plugin=get_trt_plugin("BatchedNMS_TRT", plugin_args))
+                    plugin=get_trt_plugin("BatchedNMSDynamic_TRT", plugin_args))
             print('nms.plugin.plugin_namespace', nms.plugin.plugin_namespace)
             nms.plugin.plugin_namespace = ""
             print('nms.plugin.plugin_namespace', nms.plugin.plugin_namespace)
