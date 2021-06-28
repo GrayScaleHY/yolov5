@@ -8,6 +8,7 @@ import argparse
 import sys
 import time
 from pathlib import Path
+import os
 
 import torch
 import torch.nn as nn
@@ -92,14 +93,21 @@ def run(weights='./yolov5s.pt',  # weights path
 
             print(f'{prefix} starting export with onnx {onnx.__version__}...')
             f = weights.replace('.pt', '.onnx')  # filename
-            torch.onnx.export(model, img, f, verbose=False, opset_version=opset_version,
-                              training=torch.onnx.TrainingMode.TRAINING if train else torch.onnx.TrainingMode.EVAL,
-                              do_constant_folding=not train,
-                              input_names=['images'],
-                              output_names=['output'],
-                              dynamic_axes={'images': {0: 'batch', 2: 'height', 3: 'width'},  # shape(1,3,640,640)
-                                            'output': {0: 'batch', 1: 'anchors'}  # shape(1,25200,85)
-                                            } if dynamic else None)
+            if os.environ['BOX_SCORE'].lower() == 'true':
+                torch.onnx.export(model, img, f, verbose=False, opset_version=opset_version, input_names=['images'],
+                          output_names=['boxes', 'scores'],
+                          dynamic_axes={'images': {0: 'batch_size'},
+                                'boxes': {0: 'batch_size'},
+                                'scores': {0: 'batch_size'}})
+            else:
+                torch.onnx.export(model, img, f, verbose=False, opset_version=opset_version,
+                                  training=torch.onnx.TrainingMode.TRAINING if train else torch.onnx.TrainingMode.EVAL,
+                                  do_constant_folding=not train,
+                                  input_names=['images'],
+                                  output_names=['output'],
+                                  dynamic_axes={'images': {0: 'batch', 2: 'height', 3: 'width'},  # shape(1,3,640,640)
+                                                'output': {0: 'batch', 1: 'anchors'}  # shape(1,25200,85)
+                                                } if dynamic else None)
 
             # Checks
             model_onnx = onnx.load(f)  # load onnx model

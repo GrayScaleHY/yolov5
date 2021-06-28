@@ -105,6 +105,7 @@ def run(weights='yolov5s.pt',  # model.pt path(s)
         hide_labels=False,  # hide labels
         hide_conf=False,  # hide confidences
         half=False,  # use FP16 half-precision inference
+        no_nms=False # no NMS
         ):
     save_img = not nosave and not source.endswith('.txt')  # save inference images
     webcam = source.isnumeric() or source.endswith('.txt') or source.lower().startswith(
@@ -147,10 +148,11 @@ def run(weights='yolov5s.pt',  # model.pt path(s)
     if webcam:
         view_img = check_imshow()
         cudnn.benchmark = True  # set True to speed up constant image size inference
-        dataset = LoadStreams(source, img_size=imgsz, auto=False, stride=stride)
+        # dataset = LoadStreams(source, img_size=imgsz, auto=False, stride=stride)
+        dataset = LoadStreams(source, img_size=imgsz, auto=False, stride=None)
     else:
         save_img = True
-        dataset = LoadImages(source, img_size=imgsz, auto=False, stride=stride)
+        dataset = LoadImages(source, img_size=imgsz, auto=False, stride=None)
 
     # Get names and colors
     classes = names = ['person', 'bicycle', 'car', 'motorcycle', 'airplane', 'bus', 'train', 'truck', 'boat', 'traffic light', 'fire hydrant', 'stop sign', 'parking meter', 'bench', 'bird', 'cat', 'dog', 'horse', 'sheep', 'cow', 'elephant', 'bear', 'zebra', 'giraffe', 'backpack', 'umbrella', 'handbag', 'tie', 'suitcase', 'frisbee', 'skis', 'snowboard', 'sports ball', 'kite', 'baseball bat', 'baseball glove', 'skateboard', 'surfboard', 'tennis racket', 'bottle', 'wine glass', 'cup', 'fork', 'knife', 'spoon', 'bowl', 'banana', 'apple', 'sandwich', 'orange', 'broccoli', 'carrot', 'hot dog', 'pizza', 'donut', 'cake', 'chair', 'couch', 'potted plant', 'bed', 'dining table', 'toilet', 'tv', 'laptop', 'mouse', 'remote', 'keyboard', 'cell phone', 'microwave', 'oven', 'toaster', 'sink', 'refrigerator', 'book', 'clock', 'vase', 'scissors', 'teddy bear', 'hair drier', 'toothbrush']
@@ -158,8 +160,8 @@ def run(weights='yolov5s.pt',  # model.pt path(s)
 
 
     # Run inference
-    if device.type != 'cpu':
-        model(torch.zeros(1, 3, imgsz, imgsz).to(device).type_as(next(model.parameters())))  # run once
+    # if device.type != 'cpu':
+    #     model(torch.zeros(1, 3, imgsz, imgsz).to(device).type_as(next(model.parameters())))  # run once
     t0 = time.time()
     img = torch.zeros((1, 3, imgsz, imgsz), device=device)  # init img
     # _ = model(img.half() if half else img) if device.type != 'cpu' else None  # run once
@@ -193,7 +195,7 @@ def run(weights='yolov5s.pt',  # model.pt path(s)
             # Run inference.
             context.execute_v2(dbindings)
 
-            if not opt.no_nms:
+            if not no_nms:
                 out_ = outputs[-1]
                 # Transfer predictions back to host from GPU
                 cuda.memcpy_dtoh(out_.host, out_.device)
@@ -211,13 +213,13 @@ def run(weights='yolov5s.pt',  # model.pt path(s)
                 cuda.memcpy_dtoh(outputs[1].host, outputs[1].device)
                 cuda.memcpy_dtoh(outputs[2].host, outputs[2].device)
                 cuda.memcpy_dtoh(outputs[3].host, outputs[3].device)
-                num_detections = np.reshape(np.array(output_dict['num_detections_reshaped']),
+                num_detections = np.reshape(np.array(output_dict['num_detections']),
                         [batch_size])
-                nmsed_boxes = np.reshape(np.array(output_dict['nmsed_boxes']),
+                nmsed_boxes = np.reshape(np.array(output_dict['detection_boxes']),
                         [batch_size, keep_topk, 4])
-                nmsed_scores = np.reshape(np.array(output_dict['nmsed_scores']),
+                nmsed_scores = np.reshape(np.array(output_dict['detection_scores']),
                         [batch_size, keep_topk])
-                nmsed_classes = np.reshape(np.array(output_dict['nmsed_classes']),
+                nmsed_classes = np.reshape(np.array(output_dict['detection_classes']),
                         [batch_size, keep_topk])
 
                 print('num_detections', num_detections)
@@ -241,7 +243,7 @@ def run(weights='yolov5s.pt',  # model.pt path(s)
             pred = apply_classifier(pred, modelc, img, im0s)
 
         # Process detections
-        if not opt.no_nms:
+        if not no_nms:
             for i, det in enumerate(pred):  # detections per image
                 if webcam:  # batch_size >= 1
                     p, s, im0 = path[i], '%g: ' % i, im0s[i].copy()

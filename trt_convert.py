@@ -145,8 +145,9 @@ def main():
     parser = argparse.ArgumentParser(description="Creates a TensorRT engine from the provided ONNX file.\n")
     parser.add_argument("--onnx", required=False, default="best.onnx", help="The ONNX model file to convert to TensorRT")
     parser.add_argument("-o", "--output", type=str, default="model.engine", help="The path at which to write the engine")
-    parser.add_argument("--num_classes", type=int, default=5, help="The num of classes labels")
-    parser.add_argument("--batch_size", type=int, default=32, help="The engine max batch size ")
+    parser.add_argument("--num-classes", type=int, default=80, help="The num of classes labels")
+    parser.add_argument("--ws-digits", type=int, default=29, help="set workspace to 2^--ws-digits")
+    parser.add_argument("--batch_size", type=int, default=8, help="The engine max batch size ")
     parser.add_argument("-b", "--max-batch-size", type=int, default=32, help="The max batch size for the TensorRT engine input")
     parser.add_argument("-v", "--verbosity", action="count", help="Verbosity for logging. (None) for ERROR, (-v) for INFO/WARNING/ERROR, (-vv) for VERBOSE.")
     parser.add_argument("--explicit-batch", action='store_true', help="Set trt.NetworkDefinitionCreationFlag.EXPLICIT_BATCH.")
@@ -165,7 +166,7 @@ def main():
     parser.add_argument("--calibration-batch-size", help="(INT8 ONLY) The batch size to use during calibration.", type=int, default=32)
     parser.add_argument("--max-calibration-size", help="(INT8 ONLY) The max number of data to calibrate on from --calibration-data.", type=int, default=512)
     parser.add_argument("-p", "--preprocess_func", type=str, default=None, help="(INT8 ONLY) Function defined in 'processing.py' to use for pre-processing calibration data.")
-    args, _ = parser.parse_known_args()
+    args = parser.parse_args()
 
     # Adjust logging verbosity
     if args.verbosity is None:
@@ -201,7 +202,7 @@ def main():
          trt.OnnxParser(network, TRT_LOGGER) as parser:
             
         print('has_implicit_batch_dimension', network.has_implicit_batch_dimension)
-        config.max_workspace_size = 2**29 # 500MiB
+        config.max_workspace_size = 2**args.ws_digits # 500MiB
 
         # Set Builder Config Flags
         for flag in builder_flag_map:
