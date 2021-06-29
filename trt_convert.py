@@ -143,8 +143,11 @@ def get_trt_plugin(plugin_name, plugin_args):
 
 def main():
     parser = argparse.ArgumentParser(description="Creates a TensorRT engine from the provided ONNX file.\n")
-    parser.add_argument("--onnx", required=True, help="The ONNX model file to convert to TensorRT")
-    parser.add_argument("-o", "--output", type=str, default="weights/model.engine", help="The path at which to write the engine")
+    parser.add_argument("--onnx", required=False, default="best.onnx", help="The ONNX model file to convert to TensorRT")
+    parser.add_argument("-o", "--output", type=str, default="model.engine", help="The path at which to write the engine")
+    parser.add_argument("--num-classes", type=int, default=80, help="The num of classes labels")
+    parser.add_argument("--ws-digits", type=int, default=29, help="set workspace to 2^--ws-digits")
+    parser.add_argument("--batch_size", type=int, default=8, help="The engine max batch size ")
     parser.add_argument("-b", "--max-batch-size", type=int, default=32, help="The max batch size for the TensorRT engine input")
     parser.add_argument("-v", "--verbosity", action="count", help="Verbosity for logging. (None) for ERROR, (-v) for INFO/WARNING/ERROR, (-vv) for VERBOSE.")
     parser.add_argument("--explicit-batch", action='store_true', help="Set trt.NetworkDefinitionCreationFlag.EXPLICIT_BATCH.")
@@ -157,12 +160,13 @@ def main():
     parser.add_argument("--int8", action="store_true", help="Attempt to use INT8 kernels when possible. This should generally be used in addition to the --fp16 flag. \
                                                              ONLY SUPPORTS RESNET-LIKE MODELS SUCH AS RESNET50/VGG16/INCEPTION/etc.")
     parser.add_argument("--nms", action="store_true", help="Proceed NMS in TensorRT.")
+    parser.add_argument("--iou_thres", type=float, default=0.5, help='IOU threshold for NMS')
     parser.add_argument("--calibration-cache", help="(INT8 ONLY) The path to read/write from calibration cache.", default="calibration.cache")
     parser.add_argument("--calibration-data", help="(INT8 ONLY) The directory containing {*.jpg, *.jpeg, *.png} files to use for calibration. (ex: Imagenet Validation Set)", default=None)
     parser.add_argument("--calibration-batch-size", help="(INT8 ONLY) The batch size to use during calibration.", type=int, default=32)
     parser.add_argument("--max-calibration-size", help="(INT8 ONLY) The max number of data to calibrate on from --calibration-data.", type=int, default=512)
     parser.add_argument("-p", "--preprocess_func", type=str, default=None, help="(INT8 ONLY) Function defined in 'processing.py' to use for pre-processing calibration data.")
-    args, _ = parser.parse_known_args()
+    args = parser.parse_args()
 
     # Adjust logging verbosity
     if args.verbosity is None:
@@ -198,7 +202,7 @@ def main():
          trt.OnnxParser(network, TRT_LOGGER) as parser:
             
         print('has_implicit_batch_dimension', network.has_implicit_batch_dimension)
-        config.max_workspace_size = 2**31 # 1GiB
+        config.max_workspace_size = 2**args.ws_digits # 500MiB
 
         # Set Builder Config Flags
         for flag in builder_flag_map:
@@ -237,11 +241,11 @@ def main():
             plugin_args = types.SimpleNamespace()
             plugin_args.share_location = 1
             plugin_args.background_label_id = -1
-            plugin_args.number_classes = 80
+            plugin_args.number_classes = args.num_classes
             plugin_args.topk = 1000
             plugin_args.keep_topk = 100
             plugin_args.score_threshold = 0.3
-            plugin_args.iou_threshold = 0.5
+            plugin_args.iou_threshold = args.iou_thres
             plugin_args.is_normalized = 0
             plugin_args.clip_boxes = False
             boxes_1 = network.get_output(0)
@@ -255,7 +259,7 @@ def main():
             scores_1 = network.get_output(1)
             print('scores_1.shape', scores_1.shape)
             scores_reshape_op = network.add_shuffle(input=scores_1)
-            scores_reshape_op.reshape_dims = [-1, 25200, 80]
+            scores_reshape_op.reshape_dims = [-1, 25200, args.num_classes]
             scores_reshape = scores_reshape_op.get_output(0)
             print('scores_reshape.shape', scores_reshape.shape)
 
@@ -266,7 +270,7 @@ def main():
             nms.plugin.plugin_namespace = ""
             print('nms.plugin.plugin_namespace', nms.plugin.plugin_namespace)
 
-            nms.get_output(0).name = "num_detections"
+            nms.get_output(0).name = "num"
             print("nms.get_output(0).shape", nms.get_output(0).shape)
             # reshape num_detections to adapt dynamic batch dim of 
             # Triton (TensorRT) Inference Server
@@ -275,15 +279,15 @@ def main():
             det_reshape_op.reshape_dims = [-1, 1]
             det_reshape = det_reshape_op.get_output(0)
             print("det_rehshape.shape", det_reshape.shape)
-            det_reshape.name = "num_detections_reshaped"
+            det_reshape.name = "num_detections"
             network.mark_output(det_reshape)
 
             # network.mark_output(nms.get_output(0))
-            nms.get_output(1).name = "nmsed_boxes"
+            nms.get_output(1).name = "detection_boxes"
             network.mark_output(nms.get_output(1))
-            nms.get_output(2).name = "nmsed_scores"
+            nms.get_output(2).name = "detection_scores"
             network.mark_output(nms.get_output(2))
-            nms.get_output(3).name = "nmsed_classes"
+            nms.get_output(3).name = "detection_classes"
             network.mark_output(nms.get_output(3))
             # print(boxes, boxes.name)
             # print(scores, scores.name)
@@ -296,7 +300,7 @@ def main():
         if args.explicit_batch:
             # Add optimization profiles
             # batch_sizes = [1, 8, 16, 32, 64]
-            batch_sizes = [16]
+            batch_sizes = [args.batch_size]
             inputs = [network.get_input(i) for i in range(network.num_inputs)]
             opt_profiles = create_optimization_profiles(builder, inputs, batch_sizes)
             add_profiles(config, inputs, opt_profiles)
