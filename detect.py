@@ -106,6 +106,7 @@ def run(weights='yolov5s.pt',  # model.pt path(s)
         hide_conf=False,  # hide confidences
         half=False,  # use FP16 half-precision inference
         no_nms=False # no NMS
+        num_classes=80 # number of classes to detect
         ):
     save_img = not nosave and not source.endswith('.txt')  # save inference images
     webcam = source.isnumeric() or source.endswith('.txt') or source.lower().startswith(
@@ -199,7 +200,7 @@ def run(weights='yolov5s.pt',  # model.pt path(s)
                 out_ = outputs[-1]
                 # Transfer predictions back to host from GPU
                 cuda.memcpy_dtoh(out_.host, out_.device)
-                out_np = np.reshape(np.array(out_.host), [-1, 25200, 85])
+                out_np = np.reshape(np.array(out_.host), [-1, 25200, num_classes + 5])
 
                 print('out_np.shape', out_np.shape)
                 pred = torch.Tensor(out_np)
@@ -208,7 +209,6 @@ def run(weights='yolov5s.pt',  # model.pt path(s)
                 pred = non_max_suppression(pred, opt.conf_thres, opt.iou_thres, classes=opt.classes, agnostic=opt.agnostic_nms)
             else:
                 keep_topk = 100
-                num_classes = 80
                 cuda.memcpy_dtoh(outputs[0].host, outputs[0].device)
                 cuda.memcpy_dtoh(outputs[1].host, outputs[1].device)
                 cuda.memcpy_dtoh(outputs[2].host, outputs[2].device)
@@ -366,6 +366,7 @@ def parse_opt():
     parser.add_argument('--name', default='exp', help='save results to project/name')
     parser.add_argument('--exist-ok', action='store_true', help='existing project/name ok, do not increment')
     parser.add_argument('--no-nms', action='store_true', help='remove NMS')
+    parser.add_argument("--num-classes", type=int, default=80, help="The num of classes labels")
     parser.add_argument('--line-thickness', default=3, type=int, help='bounding box thickness (pixels)')
     parser.add_argument('--hide-labels', default=False, action='store_true', help='hide labels')
     parser.add_argument('--hide-conf', default=False, action='store_true', help='hide confidences')
