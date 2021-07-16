@@ -69,7 +69,7 @@ class Detect(nn.Module):
                 y_ = torch.cat((xy, wh, pr_cls), -1)
                 z.append(y_.view(bs, -1, self.no))
 
-        if os.environ['BOX_SCORE'].lower() == 'true':
+        if os.environ.get('BOX_SCORE', 'false').lower() == 'true':
             z_cat = torch.cat(z, 1)
             xmin = z_cat[:, :, 0:1] - z_cat[:, :, 2:3] / 2
             ymin = z_cat[:, :, 1:2] - z_cat[:, :, 3:4] / 2

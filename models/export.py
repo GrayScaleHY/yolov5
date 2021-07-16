@@ -70,7 +70,7 @@ if __name__ == '__main__':
 
         print('\nStarting ONNX export with onnx %s...' % onnx.__version__)
         f = opt.weights.replace('.pt', '.onnx')  # filename
-        if os.environ['BOX_SCORE'].lower() == 'true':
+        if os.environ.get('BOX_SCORE', 'false').lower() == 'true':
             torch.onnx.export(model, img, f, verbose=False, opset_version=11, input_names=['images'],
                       output_names=['boxes', 'scores'],
                       dynamic_axes={'images': {0: 'batch_size'},
