@@ -13,7 +13,7 @@ python3 trt_convert.py --onnx=weights/yolov5l.onnx -o weights/yolov5l_nms.engine
 
 3.测试TensorRT的检测结果(在Docker ``zldrobit/tensorrt:20.12-py3-torch-1.8.0`)
 ```
-python3 detect.py --weight weights/yolov5l_nms.engine --no-nms --num-classes 80
+python3 detect.py --weights weights/yolov5l_nms.engine --no-nms --num-classes 80
 ```
 
 <del>
