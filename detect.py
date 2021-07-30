@@ -105,7 +105,7 @@ def run(weights='yolov5s.pt',  # model.pt path(s)
         hide_labels=False,  # hide labels
         hide_conf=False,  # hide confidences
         half=False,  # use FP16 half-precision inference
-        no_nms=False # no NMS
+        no_nms=False,  # no NMS
         num_classes=80 # number of classes to detect
         ):
     save_img = not nosave and not source.endswith('.txt')  # save inference images
