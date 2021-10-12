@@ -94,18 +94,18 @@ def run(weights='./yolov5s.pt',  # weights path
             print(f'{prefix} starting export with onnx {onnx.__version__}...')
             f = weights.replace('.pt', '.onnx')  # filename
             if os.environ['BOX_SCORE'].lower() == 'true':
-                torch.onnx.export(model, img, f, verbose=False, opset_version=opset_version, input_names=['images'],
+                torch.onnx.export(model, img, f, verbose=False, opset_version=opset_version, input_names=['image'],
                           output_names=['boxes', 'scores'],
-                          dynamic_axes={'images': {0: 'batch_size'},
+                          dynamic_axes={'image': {0: 'batch_size'},
                                 'boxes': {0: 'batch_size'},
                                 'scores': {0: 'batch_size'}})
             else:
                 torch.onnx.export(model, img, f, verbose=False, opset_version=opset_version,
                                   training=torch.onnx.TrainingMode.TRAINING if train else torch.onnx.TrainingMode.EVAL,
                                   do_constant_folding=not train,
-                                  input_names=['images'],
+                                  input_names=['image'],
                                   output_names=['output'],
-                                  dynamic_axes={'images': {0: 'batch', 2: 'height', 3: 'width'},  # shape(1,3,640,640)
+                                  dynamic_axes={'image': {0: 'batch', 2: 'height', 3: 'width'},  # shape(1,3,640,640)
                                                 'output': {0: 'batch', 1: 'anchors'}  # shape(1,25200,85)
                                                 } if dynamic else None)
 
@@ -124,7 +124,7 @@ def run(weights='./yolov5s.pt',  # weights path
                     model_onnx, check = onnxsim.simplify(
                         model_onnx,
                         dynamic_input_shape=dynamic,
-                        input_shapes={'images': list(img.shape)} if dynamic else None)
+                        input_shapes={'image': list(img.shape)} if dynamic else None)
                     assert check, 'assert check failed'
                     onnx.save(model_onnx, f)
                 except Exception as e:
